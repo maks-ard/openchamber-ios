@@ -1,0 +1,134 @@
+name: Build OpenChamber for iPhone
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Stable upstream tag (empty = latest release)'
+        type: string
+        default: ''
+      force:
+        description: 'Rebuild an already published version'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+concurrency:
+  group: ios-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.release.outputs.build }}
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+      version: ${{ steps.release.outputs.version }}
+      filename: ${{ steps.release.outputs.filename }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: node --test scripts/check-release.test.mjs
+        env:
+          GITHUB_OUTPUT: ''
+      - id: release
+        run: node scripts/check-release.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+          FORCE_BUILD: ${{ inputs.force }}
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: openchamber/openchamber
+          ref: ${{ needs.check.outputs.sha }}
+          path: upstream
+          persist-credentials: false
+      - name: Read upstream toolchain version
+        id: tools
+        run: echo "bun=$(node -p 'require("./upstream/package.json").packageManager.split("@")[1]')" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '26'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ steps.tools.outputs.bun }}
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Build unsigned device IPA
+        run: bash scripts/build-ios.sh
+        env:
+          APP_VERSION: ${{ needs.check.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.check.outputs.tag }}
+          UPSTREAM_SHA: ${{ needs.check.outputs.sha }}
+          IPA_FILENAME: ${{ needs.check.outputs.filename }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-ipa
+          path: |
+            dist/*.ipa
+            dist/SHA256SUMS
+            dist/build-info.json
+            dist/UPSTREAM-LICENSE.txt
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: build-diagnostics
+          path: dist/*.log
+          retention-days: 3
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-ipa
+          path: dist
+      - name: Verify and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.check.outputs.tag }}
+          UPSTREAM_SHA: ${{ needs.check.outputs.sha }}
+          IPA_FILENAME: ${{ needs.check.outputs.filename }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check SHA256SUMS
+          cat > release-notes.md <<EOF
+          Unofficial unsigned OpenChamber build for iPhone. Re-sign locally with AltStore.
+
+          Upstream: https://github.com/openchamber/openchamber/releases/tag/$RELEASE_TAG
+          Source commit: $UPSTREAM_SHA
+
+          Widgets and the notification service extension are excluded for free-account sideloading.
+          APNs push notifications require the original developer's signing capabilities and are unavailable in this build.
+          Apple credentials and signing certificates are not used by this workflow.
+          EOF
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --draft=true
+          else
+            gh release create "$RELEASE_TAG" --draft --title "OpenChamber $RELEASE_TAG (unsigned iOS)" --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" "$IPA_FILENAME" SHA256SUMS build-info.json UPSTREAM-LICENSE.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --notes-file release-notes.md --latest
