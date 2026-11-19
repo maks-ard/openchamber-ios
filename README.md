@@ -30,6 +30,39 @@ a newer application version. Keep the same signing account and application ident
 install over the existing app rather than deleting it to preserve local connections.
 Do not put Apple credentials, pairing QR codes, server tokens or provisioning profiles in this repository.
 
+## Wi-Fi signature refresh on Windows
+
+The user confirmed installation, connection to an OpenChamber server on a separate work laptop,
+and successful **Refresh All with USB disconnected** on 2026-11-19.
+
+AltServer runs on this Windows PC; it is separate from the OpenChamber server. The phone and this PC
+must be on the same home network for local refresh. Enable Background Refresh in AltStore and allow
+Background App Refresh for AltStore in iOS. iOS chooses when background attempts run; this is not a
+fixed daily schedule or a guarantee. Check My Apps if an expiry date approaches.
+
+`scripts/install-altserver-startup.ps1` registers the current user's interactive logon task
+`OpenChamber AltServer` with highest privileges, unlimited runtime and no concurrent task instances.
+The default executable is `.tools/altstore/AltServer/AltServer.exe`. Run the script as administrator;
+`-StartNow` replaces matching manually started processes with one scheduled instance.
+The scheduled task was launched and verified Running; a full reboot/login has not been tested.
+To stop autostart, disable this task in Task Scheduler. Do not start extra manual AltServer instances.
+
+During setup, Wi-Fi lockdown was already enabled and USB trust was valid. TCP port 62078 on the phone
+was reachable over home Wi-Fi, but AltServer reported error 2003. Restarting Bonjour Service and
+Apple Mobile Device Service, then AltServer, was followed by a successful wireless refresh reported
+by the user. The diagnostic usbmux listing still showed no Network entry; that listing alone is not
+a reliable success criterion for this setup. No firewall rules or network profiles were changed.
+
+`scripts/iphone-wifi.py` is an optional diagnostic helper using pymobiledevice3 (tested 11.60.0):
+`status` reads the flag via USB; `enable`/`disable` change it; `network` checks usbmux network discovery.
+It uses existing trust only and deliberately excludes device identifiers and pairing records from output.
+The local isolated environment is `.tools/ios-tools`; it includes the library modules needed by this
+helper, not every dependency of the full pymobiledevice3 CLI.
+
+For the earlier Windows TLS error, the user manually installed the official Apple Root CA from
+[Apple PKI](https://www.apple.com/certificateauthority/). The Apple authentication endpoint then
+passed Windows TLS verification. Never disable certificate verification as a workaround.
+
 ## Differences from TestFlight
 
 The app uses the upstream `com.openchamber.app` identifier before local re-signing.
@@ -56,6 +89,7 @@ Verified on 2026-11-19:
 - [Repeat check](https://github.com/maks-ard/openchamber-ios/actions/runs/44520847439) succeeded and
   skipped both macOS compilation and publication.
 - Workflow passed actionlint; all five release-selection tests passed locally and on GitHub.
-- Installation, pairing and future scheduled execution have not yet been verified on the iPhone.
+- Installation, connection to the work-laptop server and wireless signature refresh were confirmed
+  by the user. Unattended iOS background refresh and future daily release-check execution remain unverified.
 
 To stop automatic updates, disable the workflow on the Actions page. Published files remain available.
