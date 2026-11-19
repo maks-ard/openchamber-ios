@@ -1,4 +1,5 @@
 import { appendFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 export async function checkRelease(api, repo, requested = '', force = false) {
   const upstream = 'openchamber/openchamber';
@@ -15,7 +16,7 @@ export async function checkRelease(api, repo, requested = '', force = false) {
   return { build: 'true', tag, sha: commit.sha, version: tag.slice(1), filename };
 }
 
-if (process.env.GITHUB_OUTPUT) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const api = async (path, allow404 = false) => {
     const response = await fetch(`https://api.github.com${path}`, { headers: {
       Authorization: `Bearer ${process.env.GH_TOKEN}`, 'X-GitHub-Api-Version': '2022-11-28',
