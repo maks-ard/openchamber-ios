@@ -48,4 +48,14 @@ Third-party Actions are pinned to commit hashes. The package lockfile is enforce
 Local check: `node --test scripts/check-release.test.mjs`.
 Build proof: a successful Actions run producing a device-arm64 IPA; device proof: installation and pairing.
 
+Verified on 2026-11-19:
+- [First successful build and publication](https://github.com/maks-ard/openchamber-ios/actions/runs/44518904915):
+  upstream v2.7.2, commit `1a151518c95cc5ff3578bab593d2f96862ff3bb8`, minimum iOS 15.5.
+- Downloaded IPA: SHA-256 matched; ARM64 Mach-O executable and bundled mobile HTML were present;
+  app extensions were absent. The IPA is approximately 28.5 MiB.
+- [Repeat check](https://github.com/maks-ard/openchamber-ios/actions/runs/44520847439) succeeded and
+  skipped both macOS compilation and publication.
+- Workflow passed actionlint; all five release-selection tests passed locally and on GitHub.
+- Installation, pairing and future scheduled execution have not yet been verified on the iPhone.
+
 To stop automatic updates, disable the workflow on the Actions page. Published files remain available.
